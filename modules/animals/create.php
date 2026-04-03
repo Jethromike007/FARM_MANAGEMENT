@@ -45,8 +45,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         Logger::log(Auth::id(), 'create', 'animals', $id, "Added {$quantity} {$type} to farm #{$farm_id}");
 
-        // Event email
-        if ($_SESSION['email_notifications']) {
+        // Event email — fetch current user from DB to avoid undefined $user
+        $user = DB::row("SELECT name, email, email_notifications FROM users WHERE id = ?", [Auth::id()]);
+        if ($user && $user['email_notifications']) {
             Mailer::send(
                 $user['email'], $user['name'],
                 'New Animal Added — ' . APP_NAME,
