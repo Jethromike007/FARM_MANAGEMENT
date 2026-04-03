@@ -1,0 +1,38 @@
+# FarmFlow — Apache Security Rules
+Options -Indexes
+
+# Protect config and core directories
+<FilesMatch "\.(php)$">
+  # Allow PHP in public directories
+</FilesMatch>
+
+# Block direct access to config and core folders
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /farmflow/
+
+  # Block access to config directory
+  RewriteRule ^config/ - [F,L]
+
+  # Block access to core directory
+  RewriteRule ^core/ - [F,L]
+
+  # Redirect root to index
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^$ /farmflow/index.php [L,R=302]
+</IfModule>
+
+# Prevent access to sensitive files
+<FilesMatch "^(\.env|\.htpasswd|composer\.json|composer\.lock)$">
+  Order allow,deny
+  Deny from all
+</FilesMatch>
+
+# Security headers
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set X-XSS-Protection "1; mode=block"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
