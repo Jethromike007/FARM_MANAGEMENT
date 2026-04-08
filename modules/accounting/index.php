@@ -205,36 +205,79 @@ include __DIR__ . '/../../templates/header.php';
 </div>
 
 <script>
-const monthLabels = <?= json_encode($monthLabels) ?>;
-const monthData   = <?= json_encode($monthData) ?>;
-document.addEventListener('DOMContentLoaded', () => {
-  TableSorter.init('salesTable');
-  const c = ChartDefaults.getColors();
-  new Chart(document.getElementById('monthlyChart'), {
+const _acctLabels = <?= json_encode($monthLabels) ?>;
+const _acctData   = <?= json_encode($monthData) ?>;
+let   _acctInst   = null;
+
+function buildAcctChart() {
+  if (typeof Chart === 'undefined') return;
+  const ctx = document.getElementById('monthlyChart');
+  if (!ctx) return;
+
+  const dark    = document.documentElement.dataset.theme === 'dark';
+  const textCol = dark ? 'rgba(200,230,205,0.5)'  : 'rgba(26,46,26,0.45)';
+  const gridCol = dark ? 'rgba(100,180,130,0.07)' : 'rgba(39,97,64,0.06)';
+  const tipBg   = dark ? 'rgba(8,18,12,0.96)'     : 'rgba(4,12,8,0.93)';
+  const font    = { family: "'Inter', system-ui, sans-serif", size: 11 };
+
+  _acctInst?.destroy();
+
+  _acctInst = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: monthLabels,
+      labels: _acctLabels,
       datasets: [{
         label: 'Revenue (₦)',
-        data: monthData,
-        backgroundColor: monthData.map(v => v > 0 ? 'rgba(45,106,79,.75)' : 'rgba(113,128,150,.3)'),
-        borderColor: '#2d6a4f',
-        borderWidth: 1.5,
+        data: _acctData,
+        backgroundColor: _acctData.map(v => v > 0
+          ? (dark ? 'rgba(64,145,108,0.82)' : 'rgba(45,106,79,0.78)')
+          : 'rgba(113,128,150,0.22)'),
         borderRadius: 6,
+        borderSkipped: false,
       }]
     },
     options: {
-      ...ChartDefaults.baseOptions(),
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 700 },
       plugins: {
-        ...ChartDefaults.baseOptions().plugins,
+        legend: { display: false },
         tooltip: {
-          ...ChartDefaults.baseOptions().plugins.tooltip,
-          callbacks: { label: ctx => '₦' + Number(ctx.raw).toLocaleString('en-NG') }
+          backgroundColor: tipBg,
+          titleColor: '#c8e6cd',
+          bodyColor: 'rgba(200,230,205,0.7)',
+          borderColor: 'rgba(100,180,130,0.2)',
+          borderWidth: 1, padding: 12, cornerRadius: 10,
+          titleFont: { ...font, weight: '600', size: 12 }, bodyFont: font,
+          callbacks: { label: c => '  ₦' + Number(c.raw).toLocaleString('en-NG') }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: textCol, font, maxRotation: 0, padding: 6 },
+          grid:  { color: gridCol, drawTicks: false },
+          border:{ display: false }
+        },
+        y: {
+          ticks: {
+            color: textCol, font, padding: 6,
+            callback: v => '₦' + Intl.NumberFormat('en-NG', { notation: 'compact' }).format(v)
+          },
+          grid:  { color: gridCol },
+          border:{ display: false },
+          beginAtZero: true
         }
       }
     }
   });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof TableSorter !== 'undefined') TableSorter.init('salesTable');
+  buildAcctChart();
 });
+
+document.addEventListener('themechange', () => setTimeout(buildAcctChart, 80));
 </script>
 
 <?php include __DIR__ . '/../../templates/footer.php'; ?>

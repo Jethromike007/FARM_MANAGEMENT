@@ -1,212 +1,170 @@
-// ============================================================
-// assets/js/app.js — FarmFlow Global JavaScript
-// ============================================================
-
 'use strict';
 
 // ============================================================
-// Theme Manager
+// FarmFlow — app.js
 // ============================================================
+
+const THEME_KEY = 'farmflow_theme';
+
+// ── Theme Manager ──────────────────────────────────────────
 const ThemeManager = (() => {
-  const STORAGE_KEY = 'farmflow_theme';
   const html = document.documentElement;
-  const toggleBtn = document.getElementById('themeToggle');
-  const themeIcon = document.getElementById('themeIcon');
-  const themeLabel = document.getElementById('themeLabel');
+
+  // Apply a theme: set attribute, save to localStorage, update button UI
+  function apply(theme, persist) {
+    html.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+    _updateBtn(theme);
+
+    // Persist to server — only when user explicitly clicks, not on init
+    if (persist) {
+      fetch(window.APP_URL + '/api/set_theme.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme })
+      }).catch(() => {});
+    }
+
+    // Tell charts (dashboard, accounting) to rebuild with new colours
+    document.dispatchEvent(new CustomEvent('themechange', { detail: { theme } }));
+  }
+
+  function _updateBtn(theme) {
+    const btn = document.getElementById('themeToggle');
+    if (!btn) return;
+    const label = btn.querySelector('span');
+    const icon  = btn.querySelector('svg');
+    if (label) label.textContent = theme === 'dark' ? 'Light' : 'Dark';
+    if (icon) {
+      icon.innerHTML = theme === 'dark'
+        // Sun — click to go Light
+        ? '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>'
+        // Moon — click to go Dark
+        : '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+    }
+  }
 
   function get() {
-    return localStorage.getItem(STORAGE_KEY) || html.dataset.theme || 'light';
-  }
-
-  function apply(theme) {
-    html.dataset.theme = theme;
-    localStorage.setItem(STORAGE_KEY, theme);
-    if (themeIcon) themeIcon.textContent = theme === 'dark' ? '☀️' : '🌙';
-    if (themeLabel) themeLabel.textContent = theme === 'dark' ? 'Light' : 'Dark';
-    // Persist to server
-    fetch(`${window.APP_URL}/api/set_theme.php`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ theme })
-    }).catch(() => {});
-  }
-
-  function toggle() {
-    apply(get() === 'dark' ? 'light' : 'dark');
+    return localStorage.getItem(THEME_KEY) || html.dataset.theme || 'light';
   }
 
   function init() {
+    // 1. Silently apply saved preference (no server call, no event — just DOM)
     const saved = get();
-    apply(saved);
-    if (toggleBtn) toggleBtn.addEventListener('click', toggle);
+    html.dataset.theme = saved;
+    _updateBtn(saved);
+
+    // 2. Wire up toggle button
+    document.getElementById('themeToggle')?.addEventListener('click', () => {
+      apply(get() === 'dark' ? 'light' : 'dark', true); // persist=true
+    });
   }
 
   return { init, apply, get };
 })();
 
-// ============================================================
-// Sidebar Manager
-// ============================================================
+// ── Sidebar Manager ────────────────────────────────────────
 const SidebarManager = (() => {
-  const sidebar  = document.getElementById('sidebar');
-  const overlay  = document.getElementById('sidebarOverlay');
-  const toggle   = document.getElementById('sidebarToggle');
-
   function open() {
-    sidebar?.classList.add('open');
-    overlay?.classList.add('open');
+    document.getElementById('sidebar')?.classList.add('open');
+    document.getElementById('sidebarOverlay')?.classList.add('open');
     document.body.style.overflow = 'hidden';
   }
-
   function close() {
-    sidebar?.classList.remove('open');
-    overlay?.classList.remove('open');
+    document.getElementById('sidebar')?.classList.remove('open');
+    document.getElementById('sidebarOverlay')?.classList.remove('open');
     document.body.style.overflow = '';
   }
-
   function init() {
-    toggle?.addEventListener('click', () => {
-      sidebar?.classList.contains('open') ? close() : open();
+    document.getElementById('sidebarToggle')?.addEventListener('click', () => {
+      document.getElementById('sidebar')?.classList.contains('open') ? close() : open();
     });
-    overlay?.addEventListener('click', close);
-
-    // Close on resize to desktop
-    window.addEventListener('resize', () => {
-      if (window.innerWidth > 768) close();
-    });
+    document.getElementById('sidebarOverlay')?.addEventListener('click', close);
+    window.addEventListener('resize', () => { if (window.innerWidth > 768) close(); });
   }
-
   return { init, open, close };
 })();
 
-// ============================================================
-// Weeks Left Calculator
-// ============================================================
+// ── Readiness / Weeks Left ─────────────────────────────────
 const WeeksCalc = (() => {
-
-  /**
-   * Calculate days remaining.
-   * @param {string} startDate - ISO date string (YYYY-MM-DD)
-   * @param {number} maturityDays
-   * @returns {number} positive = days left, negative = overdue
-   */
   function daysLeft(startDate, maturityDays) {
     const start    = new Date(startDate);
     const maturity = new Date(start.getTime() + maturityDays * 86400000);
-    const today    = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today    = new Date(); today.setHours(0,0,0,0);
     return Math.round((maturity - today) / 86400000);
   }
-
-  function weeksLeft(startDate, maturityDays) {
-    const days = daysLeft(startDate, maturityDays);
-    if (days <= 0) return 'Ready';
-    const w = Math.floor(days / 7);
-    const d = days % 7;
-    if (w === 0) return `${d}d left`;
-    return d > 0 ? `${w}w ${d}d left` : `${w}w left`;
+  function label(startDate, maturityDays) {
+    const d = daysLeft(startDate, maturityDays);
+    if (d <= 0) return 'Ready';
+    const w = Math.floor(d / 7), r = d % 7;
+    if (w === 0) return r + 'd left';
+    return r > 0 ? w + 'w ' + r + 'd' : w + 'w left';
   }
-
-  function readinessPct(startDate, maturityDays) {
-    const start   = new Date(startDate);
-    const today   = new Date();
-    const elapsed = Math.round((today - start) / 86400000);
+  function pct(startDate, maturityDays) {
+    const elapsed = Math.round((new Date() - new Date(startDate)) / 86400000);
     return Math.min(100, Math.round((elapsed / maturityDays) * 100));
   }
-
-  function statusClass(startDate, maturityDays) {
-    const days = daysLeft(startDate, maturityDays);
-    if (days <= 0)  return 'success';
-    if (days <= 14) return 'warning';
-    return 'info';
-  }
-
-  /** Render all [data-weeks-left] elements on the page */
   function renderAll() {
     document.querySelectorAll('[data-start-date][data-maturity-days]').forEach(el => {
-      const start    = el.dataset.startDate;
-      const maturity = parseInt(el.dataset.maturityDays, 10);
-      const label    = el.querySelector('.weeks-label');
-      const bar      = el.querySelector('.ff-progress-bar');
-      const pct      = readinessPct(start, maturity);
-      const cls      = statusClass(start, maturity);
-
-      if (label) label.textContent = weeksLeft(start, maturity);
-      if (bar) {
-        bar.style.width = `${pct}%`;
-        bar.className = `ff-progress-bar ${cls}`;
-      }
-
-      // Set badge color
-      const badge = el.querySelector('.readiness-badge');
-      if (badge) {
-        badge.className = `ff-badge ff-badge-${cls}`;
-        badge.textContent = weeksLeft(start, maturity);
+      const s = el.dataset.startDate;
+      const m = parseInt(el.dataset.maturityDays, 10);
+      const days = daysLeft(s, m);
+      const p    = pct(s, m);
+      const cls  = days <= 0 ? 'success' : days <= 14 ? 'warning' : 'info';
+      const bar  = el.querySelector('.ff-progress-bar');
+      if (bar) { bar.style.width = p + '%'; bar.className = 'ff-progress-bar ' + cls; }
+      const badge = el.querySelector('.readiness-badge, .readiness-chip');
+      if (badge) badge.textContent = label(s, m);
+      const fill = el.querySelector('.prog-fill');
+      if (fill) {
+        fill.style.width = p + '%';
+        fill.className = 'prog-fill ' + (days <= 0 ? 'p-ready' : days <= 14 ? 'p-soon' : 'p-growing');
       }
     });
+    document.querySelectorAll('.prog-fill[data-pct]').forEach(el => {
+      setTimeout(() => { el.style.width = el.dataset.pct + '%'; }, 300);
+    });
   }
-
-  return { daysLeft, weeksLeft, readinessPct, statusClass, renderAll };
+  return { daysLeft, label, pct, renderAll };
 })();
 
-// ============================================================
-// Table Sorter (lightweight client-side)
-// ============================================================
+// ── Table Sorter ───────────────────────────────────────────
 const TableSorter = (() => {
   function init(tableId) {
     const table = document.getElementById(tableId);
     if (!table) return;
     const headers = table.querySelectorAll('th[data-sortable]');
     let sortCol = null, sortDir = 1;
-
     headers.forEach((th, i) => {
-      th.style.cursor = 'pointer';
-      th.innerHTML += ' <span class="sort-icon">⇅</span>';
+      th.innerHTML += ' <span style="opacity:.35;font-size:10px">⇅</span>';
       th.addEventListener('click', () => {
-        if (sortCol === i) {
-          sortDir *= -1;
-        } else {
-          sortCol = i;
-          sortDir = 1;
-        }
-        sortTable(table, i, sortDir, headers);
+        sortDir = sortCol === i ? sortDir * -1 : 1;
+        sortCol = i;
+        const tbody = table.querySelector('tbody');
+        Array.from(tbody.querySelectorAll('tr'))
+          .sort((a, b) => {
+            const av = a.cells[i]?.textContent.trim() || '';
+            const bv = b.cells[i]?.textContent.trim() || '';
+            const an = parseFloat(av.replace(/[^0-9.-]/g, ''));
+            const bn = parseFloat(bv.replace(/[^0-9.-]/g, ''));
+            return (!isNaN(an) && !isNaN(bn) ? an - bn : av.localeCompare(bv)) * sortDir;
+          })
+          .forEach(r => tbody.appendChild(r));
+        headers.forEach((h, j) => {
+          const ic = h.querySelector('span');
+          if (ic) ic.textContent = j === i ? (sortDir === 1 ? ' ↑' : ' ↓') : ' ⇅';
+        });
       });
     });
   }
-
-  function sortTable(table, col, dir, headers) {
-    const tbody = table.querySelector('tbody');
-    const rows  = Array.from(tbody.querySelectorAll('tr'));
-
-    rows.sort((a, b) => {
-      const aVal = a.cells[col]?.textContent.trim() || '';
-      const bVal = b.cells[col]?.textContent.trim() || '';
-      const aNum = parseFloat(aVal.replace(/[^0-9.-]/g, ''));
-      const bNum = parseFloat(bVal.replace(/[^0-9.-]/g, ''));
-      if (!isNaN(aNum) && !isNaN(bNum)) return (aNum - bNum) * dir;
-      return aVal.localeCompare(bVal) * dir;
-    });
-
-    rows.forEach(r => tbody.appendChild(r));
-
-    // Update sort icons
-    headers.forEach((th, i) => {
-      const icon = th.querySelector('.sort-icon');
-      if (icon) icon.textContent = i === col ? (dir === 1 ? '↑' : '↓') : '⇅';
-    });
-  }
-
   return { init };
 })();
 
-// ============================================================
-// Live Search (filter table rows)
-// ============================================================
+// ── Live Search ────────────────────────────────────────────
 function initLiveSearch(inputId, tableId) {
   const input = document.getElementById(inputId);
   const table = document.getElementById(tableId);
   if (!input || !table) return;
-
   input.addEventListener('input', () => {
     const q = input.value.toLowerCase();
     table.querySelectorAll('tbody tr').forEach(row => {
@@ -215,83 +173,75 @@ function initLiveSearch(inputId, tableId) {
   });
 }
 
-// ============================================================
-// Confirm Delete
-// ============================================================
-function confirmDelete(formId, message) {
-  message = message || 'Are you sure you want to delete this record? This action cannot be undone.';
-  if (confirm(message)) {
+// ── Confirm Delete ─────────────────────────────────────────
+function confirmDelete(formId, msg) {
+  if (confirm(msg || 'Delete this record? This cannot be undone.')) {
     document.getElementById(formId)?.submit();
   }
 }
 
-// ============================================================
-// Chart.js Default Config
-// ============================================================
+// ── Money formatter ────────────────────────────────────────
+function formatMoney(n) {
+  return '₦' + Math.round(Number(n)).toLocaleString('en-NG');
+}
+
+// ── Chart.js colour helpers (used by inline scripts in dashboard & accounting) ──
 const ChartDefaults = (() => {
-  function getColors() {
-    const isDark = document.documentElement.dataset.theme === 'dark';
+  function isDark() { return document.documentElement.dataset.theme === 'dark'; }
+  function colors() {
+    const dark = isDark();
     return {
-      text:    isDark ? '#a0aec0' : '#4a5568',
-      grid:    isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-      brand:   '#2d6a4f',
-      accent:  '#f4a261',
-      green:   '#38a169',
-      blue:    '#3182ce',
-      orange:  '#e76f51',
-      purple:  '#6b46c1',
+      text:   dark ? 'rgba(228,242,232,0.5)'  : 'rgba(26,46,26,0.45)',
+      grid:   dark ? 'rgba(100,180,130,0.07)' : 'rgba(39,97,64,0.06)',
+      tip:    dark ? 'rgba(10,20,14,0.96)'    : 'rgba(4,12,8,0.93)',
+      brand:  '#2d6a4f',
+      accent: '#c47d0e',
+      blue:   '#2563eb',
+      purple: '#7c3aed',
     };
   }
-
-  function baseOptions(title) {
-    const c = getColors();
+  function baseOptions() {
+    const c = colors();
+    const f = { family: "'Inter', system-ui, sans-serif", size: 11 };
     return {
       responsive: true,
       maintainAspectRatio: false,
+      animation: { duration: 800, easing: 'easeInOutQuart' },
       plugins: {
-        legend: {
-          labels: { color: c.text, font: { family: "'Sora', sans-serif", size: 12 } }
-        },
+        legend: { display: false },
         tooltip: {
-          backgroundColor: 'rgba(15,25,35,0.9)',
-          titleFont: { family: "'Sora', sans-serif" },
-          bodyFont:  { family: "'Sora', sans-serif" },
+          backgroundColor: c.tip,
+          titleColor: '#d4ead9',
+          bodyColor:  'rgba(212,234,217,0.7)',
+          borderColor:'rgba(100,180,130,0.2)',
+          borderWidth: 1,
           padding: 12,
-          cornerRadius: 8,
+          cornerRadius: 10,
+          titleFont: { ...f, weight: '600', size: 12 },
+          bodyFont: f,
         },
       },
       scales: {
         x: {
-          ticks: { color: c.text, font: { family: "'Sora', sans-serif", size: 11 } },
-          grid:  { color: c.grid },
+          ticks:  { color: c.text, font: f, maxRotation: 0, padding: 6 },
+          grid:   { color: c.grid, drawTicks: false },
+          border: { display: false },
         },
         y: {
-          ticks: { color: c.text, font: { family: "'Sora', sans-serif", size: 11 } },
-          grid:  { color: c.grid },
+          ticks:  { color: c.text, font: f, padding: 6 },
+          grid:   { color: c.grid },
+          border: { display: false },
           beginAtZero: true,
         },
       },
     };
   }
-
-  return { getColors, baseOptions };
+  return { isDark, colors, baseOptions };
 })();
 
-// ============================================================
-// Number formatter
-// ============================================================
-function formatMoney(n) {
-  return '₦' + Number(n).toLocaleString('en-NG', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-}
-
-// ============================================================
-// Init all on DOM ready
-// ============================================================
+// ── DOM Ready ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   ThemeManager.init();
   SidebarManager.init();
   WeeksCalc.renderAll();
-
-  // Expose APP_URL to window (set via PHP in footer)
-  window.APP_URL = window.APP_URL || '';
 });
